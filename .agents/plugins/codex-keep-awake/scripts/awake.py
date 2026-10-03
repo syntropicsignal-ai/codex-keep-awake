@@ -59,23 +59,28 @@ def _db() -> sqlite3.Connection:
 
 def _identity(pid: int) -> tuple[str, str] | None:
     result = subprocess.run(
-        ["/bin/ps", "-p", str(pid), "-o", "comm=", "-o", "lstart="],
+        ["/bin/ps", "-p", str(pid), "-o", "lstart=", "-o", "command="],
         check=False,
         capture_output=True,
         text=True,
         timeout=1,
     )
-    fields = result.stdout.strip().split(None, 1)
-    if result.returncode != 0 or len(fields) != 2:
+    fields = result.stdout.strip().split(None, 5)
+    if result.returncode != 0 or len(fields) != 6:
         return None
-    return fields[0], fields[1]
+    return fields[5], " ".join(fields[:5])
+
+
+def _is_caffeinate(command: str) -> bool:
+    executable = command.split(None, 1)[0]
+    return Path(executable).name == "caffeinate"
 
 
 def _is_our_process(pid: int, started: str) -> bool:
     identity = _identity(pid)
     return bool(
         identity
-        and Path(identity[0]).name == "caffeinate"
+        and _is_caffeinate(identity[0])
         and identity[1] == started
     )
 
@@ -103,7 +108,7 @@ def _start_process(expires_at: float, now: float) -> tuple[int, str, float, floa
     )
     for _ in range(25):
         identity = _identity(process.pid)
-        if identity and Path(identity[0]).name == "caffeinate":
+        if identity and _is_caffeinate(identity[0]):
             started_at = time.time()
             return process.pid, identity[1], started_at, started_at + timeout_seconds
         time.sleep(0.02)
