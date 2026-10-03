@@ -1,0 +1,20 @@
+{
+  "name": "syntropicsignal-ai-tools",
+  "interface": {
+    "displayName": "Syntropic Signal tools"
+  },
+  "plugins": [
+    {
+      "name": "codex-keep-awake",
+      "source": {
+        "source": "local",
+        "path": "./codex-keep-awake"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
