@@ -8,7 +8,7 @@
       "name": "codex-keep-awake",
       "source": {
         "source": "local",
-        "path": "./codex-keep-awake"
+        "path": "./.agents/plugins/codex-keep-awake"
       },
       "policy": {
         "installation": "AVAILABLE",
