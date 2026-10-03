@@ -10,7 +10,7 @@ A small Codex plugin that prevents macOS idle sleep while local Codex turns are 
 - Stop that process when the final lease is released.
 - Expire abandoned leases after 12 hours; the `caffeinate` process has the same hard timeout as a final failsafe.
 
-The timeout is deliberately bounded. The plugin subscribes only to prompt submission, turn completion or interruption, and subagent start or stop. Acquiring an existing lease and releasing an absent lease are no-ops, so duplicate lifecycle events are safe. A single turn lasting longer than 12 hours can outlive the failsafe; increase the limit if that is a realistic workload.
+The timeout is deliberately bounded. The plugin subscribes only to prompt submission, turn completion or interruption, and subagent start or stop. Acquiring an existing lease and releasing an absent lease are no-ops, so duplicate lifecycle events are safe. Hooks also check that the helper still exists before running it, so a session holding an old plugin-cache path can finish without a missing-file hook error during an update or uninstall. A single turn lasting longer than 12 hours can outlive the failsafe; increase the limit if that is a realistic workload.
 
 `-i` prevents idle system sleep while allowing the display to sleep. Closing a MacBook lid can still trigger clamshell sleep. This plugin does not change `pmset` or request administrator access.
 

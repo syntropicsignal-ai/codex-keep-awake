@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" acquire"
+            "command": "if [ -r \"${PLUGIN_ROOT}/scripts/awake.py\" ]; then python3 \"${PLUGIN_ROOT}/scripts/awake.py\" acquire; fi"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" subagent-start"
+            "command": "if [ -r \"${PLUGIN_ROOT}/scripts/awake.py\" ]; then python3 \"${PLUGIN_ROOT}/scripts/awake.py\" subagent-start; fi"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" subagent-stop"
+            "command": "if [ -r \"${PLUGIN_ROOT}/scripts/awake.py\" ]; then python3 \"${PLUGIN_ROOT}/scripts/awake.py\" subagent-stop; fi"
           }
         ]
       }
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" release"
+            "command": "if [ -r \"${PLUGIN_ROOT}/scripts/awake.py\" ]; then python3 \"${PLUGIN_ROOT}/scripts/awake.py\" release; else printf '{}\\n'; fi"
           }
         ]
       }
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" release",
+            "command": "if [ -r \"${PLUGIN_ROOT}/scripts/awake.py\" ]; then python3 \"${PLUGIN_ROOT}/scripts/awake.py\" release; fi",
             "timeout": 3
           }
         ]
