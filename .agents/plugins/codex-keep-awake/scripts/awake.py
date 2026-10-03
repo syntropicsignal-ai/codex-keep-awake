@@ -16,6 +16,13 @@ from typing import Any
 
 
 LEASE_TTL_SECONDS = 12 * 60 * 60
+HOOK_ACTIONS = {
+    "UserPromptSubmit": "acquire",
+    "SubagentStart": "subagent-start",
+    "SubagentStop": "subagent-stop",
+    "Stop": "release",
+    "Interrupt": "release",
+}
 DATABASE = (
     Path.home()
     / "Library"
@@ -155,7 +162,11 @@ def _reconcile(connection: sqlite3.Connection, now: float) -> None:
     )
 
 
-def handle(action: str, event: dict[str, Any]) -> None:
+def handle(event: dict[str, Any]) -> None:
+    action = HOOK_ACTIONS.get(event.get("hook_event_name", ""))
+    if action is None:
+        return
+
     connection = _db()
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -191,12 +202,9 @@ def handle(action: str, event: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: awake.py ACTION")
-    action = sys.argv[1]
     event = json.load(sys.stdin)
-    handle(action, event)
-    if event.get("hook_event_name") == "Stop":
+    handle(event)
+    if event.get("hook_event_name") in {"Stop", "SubagentStop"}:
         print("{}")
 
 
