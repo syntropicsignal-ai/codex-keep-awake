@@ -6,27 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" touch"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" touch"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" touch"
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" acquire"
           }
         ]
       }
@@ -67,17 +47,6 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" release",
-            "timeout": 3
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${PLUGIN_ROOT}/scripts/awake.py\" session-end",
             "timeout": 3
           }
         ]

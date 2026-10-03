@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import signal
 import sqlite3
@@ -14,8 +15,6 @@ from pathlib import Path
 from typing import Any
 
 
-MAX_HOLD_SECONDS = 12 * 60 * 60
-REFRESH_AFTER_SECONDS = 10 * 60 * 60
 LEASE_TTL_SECONDS = 12 * 60 * 60
 DATABASE = (
     Path.home()
@@ -43,9 +42,17 @@ def _db() -> sqlite3.Connection:
                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                pid INTEGER NOT NULL,
                process_started TEXT NOT NULL,
-               started_at REAL NOT NULL
+               started_at REAL NOT NULL,
+               expires_at REAL NOT NULL DEFAULT 0
            )"""
     )
+    columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(wake_process)")
+    }
+    if "expires_at" not in columns:
+        connection.execute(
+            "ALTER TABLE wake_process ADD COLUMN expires_at REAL NOT NULL DEFAULT 0"
+        )
     os.chmod(DATABASE, 0o600)
     return connection
 
@@ -73,10 +80,10 @@ def _is_our_process(pid: int, started: str) -> bool:
     )
 
 
-def _stop_process(row: tuple[int, str, float] | None) -> None:
+def _stop_process(row: tuple[int, str, float, float] | None) -> None:
     if row is None:
         return
-    pid, started, _ = row
+    pid, started, _, _ = row
     if _is_our_process(pid, started):
         try:
             os.kill(pid, signal.SIGTERM)
@@ -84,9 +91,10 @@ def _stop_process(row: tuple[int, str, float] | None) -> None:
             pass
 
 
-def _start_process() -> tuple[int, str, float]:
+def _start_process(expires_at: float, now: float) -> tuple[int, str, float, float]:
+    timeout_seconds = max(1, math.ceil(expires_at - now))
     process = subprocess.Popen(
-        ["/usr/bin/caffeinate", "-i", "-t", str(MAX_HOLD_SECONDS)],
+        ["/usr/bin/caffeinate", "-i", "-t", str(timeout_seconds)],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -96,7 +104,8 @@ def _start_process() -> tuple[int, str, float]:
     for _ in range(25):
         identity = _identity(process.pid)
         if identity and Path(identity[0]).name == "caffeinate":
-            return process.pid, identity[1], time.time()
+            started_at = time.time()
+            return process.pid, identity[1], started_at, started_at + timeout_seconds
         time.sleep(0.02)
     process.terminate()
     raise RuntimeError("Could not confirm the caffeinate process identity")
@@ -115,9 +124,12 @@ def _lease_id(event: dict[str, Any], kind: str = "main") -> str | None:
 
 def _reconcile(connection: sqlite3.Connection, now: float) -> None:
     connection.execute("DELETE FROM leases WHERE expires_at <= ?", (now,))
-    lease_count = connection.execute("SELECT COUNT(*) FROM leases").fetchone()[0]
+    lease_count, latest_expiry = connection.execute(
+        "SELECT COUNT(*), MAX(expires_at) FROM leases"
+    ).fetchone()
     row = connection.execute(
-        "SELECT pid, process_started, started_at FROM wake_process WHERE singleton = 1"
+        "SELECT pid, process_started, started_at, expires_at "
+        "FROM wake_process WHERE singleton = 1"
     ).fetchone()
     process_is_live = bool(row and _is_our_process(row[0], row[1]))
 
@@ -126,18 +138,15 @@ def _reconcile(connection: sqlite3.Connection, now: float) -> None:
         connection.execute("DELETE FROM wake_process WHERE singleton = 1")
         return
 
-    should_refresh = bool(
-        row and now - row[2] >= REFRESH_AFTER_SECONDS
-    )
-    if process_is_live and not should_refresh:
+    if process_is_live and row[3] >= latest_expiry:
         return
 
     _stop_process(row)
     connection.execute("DELETE FROM wake_process WHERE singleton = 1")
-    pid, started, started_at = _start_process()
+    pid, started, started_at, expires_at = _start_process(latest_expiry, now)
     connection.execute(
-        "INSERT INTO wake_process VALUES (1, ?, ?, ?)",
-        (pid, started, started_at),
+        "INSERT INTO wake_process VALUES (1, ?, ?, ?, ?)",
+        (pid, started, started_at, expires_at),
     )
 
 
@@ -146,14 +155,14 @@ def handle(action: str, event: dict[str, Any]) -> None:
     try:
         connection.execute("BEGIN IMMEDIATE")
         now = time.time()
+        connection.execute("DELETE FROM leases WHERE expires_at <= ?", (now,))
 
-        if action in {"touch", "subagent-start"}:
+        if action in {"acquire", "subagent-start"}:
             kind = "subagent" if action == "subagent-start" else "main"
             lease_id = _lease_id(event, kind)
             if lease_id:
                 connection.execute(
-                    "INSERT INTO leases VALUES (?, ?, ?) "
-                    "ON CONFLICT(lease_id) DO UPDATE SET expires_at = excluded.expires_at",
+                    "INSERT OR IGNORE INTO leases VALUES (?, ?, ?)",
                     (
                         lease_id,
                         event["session_id"],
@@ -167,13 +176,6 @@ def handle(action: str, event: dict[str, Any]) -> None:
                 connection.execute(
                     "DELETE FROM leases WHERE lease_id = ?", (lease_id,)
                 )
-        elif action == "session-end":
-            session_id = event.get("session_id")
-            if session_id:
-                connection.execute(
-                    "DELETE FROM leases WHERE session_id = ?", (session_id,)
-                )
-
         _reconcile(connection, now)
         connection.commit()
     except Exception:
