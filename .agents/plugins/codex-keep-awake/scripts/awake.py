@@ -30,6 +30,9 @@ DATABASE = (
     / "CodexKeepAwake"
     / "state.sqlite3"
 )
+MODE_CONFIG = DATABASE.parent / "config.json"
+SESSION_INDEX = Path.home() / ".codex" / "session_index.jsonl"
+SLEEP_MODES = {"idle", "system"}
 
 
 def _db() -> sqlite3.Connection:
@@ -59,6 +62,10 @@ def _db() -> sqlite3.Connection:
     if "expires_at" not in columns:
         connection.execute(
             "ALTER TABLE wake_process ADD COLUMN expires_at REAL NOT NULL DEFAULT 0"
+        )
+    if "mode" not in columns:
+        connection.execute(
+            "ALTER TABLE wake_process ADD COLUMN mode TEXT NOT NULL DEFAULT 'idle'"
         )
     os.chmod(DATABASE, 0o600)
     return connection
@@ -92,10 +99,10 @@ def _is_our_process(pid: int, started: str) -> bool:
     )
 
 
-def _stop_process(row: tuple[int, str, float, float] | None) -> None:
+def _stop_process(row: tuple[Any, ...] | None) -> None:
     if row is None:
         return
-    pid, started, _, _ = row
+    pid, started, _, _ = row[:4]
     if _is_our_process(pid, started):
         try:
             os.kill(pid, signal.SIGTERM)
@@ -103,10 +110,23 @@ def _stop_process(row: tuple[int, str, float, float] | None) -> None:
             pass
 
 
-def _start_process(expires_at: float, now: float) -> tuple[int, str, float, float]:
+def _caffeinate_arguments(mode: str, timeout_seconds: int) -> list[str]:
+    if mode not in SLEEP_MODES:
+        raise ValueError("mode must be 'idle' or 'system'")
+    command = ["-i"]
+    if mode == "system":
+        command.append("-s")
+    command.extend(("-t", str(timeout_seconds)))
+    return command
+
+
+def _start_process(
+    expires_at: float, now: float, mode: str
+) -> tuple[int, str, float, float]:
     timeout_seconds = max(1, math.ceil(expires_at - now))
+    command = ["/usr/bin/caffeinate", *_caffeinate_arguments(mode, timeout_seconds)]
     process = subprocess.Popen(
-        ["/usr/bin/caffeinate", "-i", "-t", str(timeout_seconds)],
+        command,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -123,6 +143,62 @@ def _start_process(expires_at: float, now: float) -> tuple[int, str, float, floa
     raise RuntimeError("Could not confirm the caffeinate process identity")
 
 
+def _configured_mode() -> str:
+    try:
+        with MODE_CONFIG.open(encoding="utf-8") as config_file:
+            config = json.load(config_file)
+    except FileNotFoundError:
+        return "idle"
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"Could not read {MODE_CONFIG}: {error}") from error
+    if not isinstance(config, dict) or config.get("mode") not in SLEEP_MODES:
+        raise ValueError(f"{MODE_CONFIG} must contain mode 'idle' or 'system'")
+    return config["mode"]
+
+
+def _set_mode(mode: str) -> None:
+    if mode not in SLEEP_MODES:
+        raise ValueError("mode must be 'idle' or 'system'")
+    MODE_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(MODE_CONFIG.parent, 0o700)
+    temporary_path = MODE_CONFIG.with_suffix(".tmp")
+    temporary_path.write_text(
+        json.dumps({"mode": mode}) + "\n", encoding="utf-8"
+    )
+    os.chmod(temporary_path, 0o600)
+    temporary_path.replace(MODE_CONFIG)
+    if DATABASE.exists():
+        connection = _db()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            _reconcile(connection, time.time())
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+
+def _conversation_title(session_id: str | None) -> str | None:
+    if not session_id:
+        return None
+    title = None
+    try:
+        with SESSION_INDEX.open(encoding="utf-8") as index:
+            for line in index:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(entry, dict) and entry.get("id") == session_id:
+                    value = entry.get("thread_name")
+                    title = value if isinstance(value, str) and value else title
+    except (OSError, UnicodeError):
+        return None
+    return title
+
+
 def _lease_id(event: dict[str, Any], kind: str = "main") -> str | None:
     session_id = event.get("session_id")
     turn_id = event.get("turn_id")
@@ -135,12 +211,13 @@ def _lease_id(event: dict[str, Any], kind: str = "main") -> str | None:
 
 
 def _reconcile(connection: sqlite3.Connection, now: float) -> None:
+    mode = _configured_mode()
     connection.execute("DELETE FROM leases WHERE expires_at <= ?", (now,))
     lease_count, latest_expiry = connection.execute(
         "SELECT COUNT(*), MAX(expires_at) FROM leases"
     ).fetchone()
     row = connection.execute(
-        "SELECT pid, process_started, started_at, expires_at "
+        "SELECT pid, process_started, started_at, expires_at, mode "
         "FROM wake_process WHERE singleton = 1"
     ).fetchone()
     process_is_live = bool(row and _is_our_process(row[0], row[1]))
@@ -150,15 +227,18 @@ def _reconcile(connection: sqlite3.Connection, now: float) -> None:
         connection.execute("DELETE FROM wake_process WHERE singleton = 1")
         return
 
-    if process_is_live and row[3] >= latest_expiry:
+    if process_is_live and row[3] >= latest_expiry and row[4] == mode:
         return
 
     _stop_process(row)
     connection.execute("DELETE FROM wake_process WHERE singleton = 1")
-    pid, started, started_at, expires_at = _start_process(latest_expiry, now)
+    pid, started, started_at, expires_at = _start_process(
+        latest_expiry, now, mode
+    )
     connection.execute(
-        "INSERT INTO wake_process VALUES (1, ?, ?, ?, ?)",
-        (pid, started, started_at, expires_at),
+        "INSERT INTO wake_process (singleton, pid, process_started, started_at, expires_at, mode) "
+        "VALUES (1, ?, ?, ?, ?, ?)",
+        (pid, started, started_at, expires_at, mode),
     )
 
 
@@ -201,7 +281,68 @@ def handle(event: dict[str, Any]) -> None:
         connection.close()
 
 
+def _show_status() -> None:
+    mode = _configured_mode()
+    if not DATABASE.exists():
+        print(json.dumps({"configured_mode": mode, "active_leases": []}))
+        return
+    connection = sqlite3.connect(f"{DATABASE.as_uri()}?mode=ro", uri=True)
+    try:
+        now = time.time()
+        leases = []
+        for lease_id, session_id, expires_at in connection.execute(
+            "SELECT lease_id, session_id, expires_at FROM leases "
+            "WHERE expires_at > ? ORDER BY expires_at",
+            (now,),
+        ):
+            parts = lease_id.split(":")
+            leases.append(
+                {
+                    "session_id": session_id,
+                    "turn_id": parts[1] if len(parts) > 1 else None,
+                    "owner": parts[2] if len(parts) > 2 else None,
+                    "conversation_title": _conversation_title(session_id),
+                    "expires_in_seconds": max(0, round(expires_at - now)),
+                }
+            )
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(wake_process)")
+        }
+        if "mode" in columns:
+            process = connection.execute(
+                "SELECT pid, mode FROM wake_process WHERE singleton = 1"
+            ).fetchone()
+        else:
+            old_process = connection.execute(
+                "SELECT pid FROM wake_process WHERE singleton = 1"
+            ).fetchone()
+            process = (old_process[0], "idle") if old_process else None
+        print(
+            json.dumps(
+                {
+                    "caffeinate_pid": process[0] if process else None,
+                    "configured_mode": mode,
+                    "active_mode": process[1] if process else None,
+                    "active_leases": leases,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    finally:
+        connection.close()
+
+
 def main() -> None:
+    if sys.argv[1:] == ["status"]:
+        _show_status()
+        return
+    if len(sys.argv) == 3 and sys.argv[1] == "set-mode":
+        _set_mode(sys.argv[2])
+        print(json.dumps({"mode": sys.argv[2]}))
+        return
+    if sys.argv[1:]:
+        raise SystemExit("Usage: awake.py [status | set-mode idle|system]")
     event = json.load(sys.stdin)
     handle(event)
     if event.get("hook_event_name") in {"Stop", "SubagentStop"}:
