@@ -19,14 +19,16 @@ The default `idle` mode runs `caffeinate -i`: it prevents idle system sleep whil
 
 Choose `system` mode to add `caffeinate -s`. macOS supports this stronger system-sleep assertion only while connected to AC power. The display can still sleep. macOS can still enter clamshell sleep when a MacBook lid closes; this mode does not override that behavior. Apple documents closed-lid use with an external display, power, and external input devices.
 
-Use the bundled `$keep-awake` skill in Codex to check the current status or choose a mode. You can also set it with the installed helper:
+Use the bundled `$codex-keep-awake:keep-awake` skill in Codex to check the current status or choose a mode. You can also set it with the installed helper:
 
 ```sh
-python3 "$HOME/.codex/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.7.0/scripts/awake.py" set-mode system
-python3 "$HOME/.codex/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.7.0/scripts/awake.py" set-mode idle
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+PLUGIN_ROOT="$CODEX_HOME/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.7.0"
+python3 "$PLUGIN_ROOT/scripts/awake.py" set-mode system
+python3 "$PLUGIN_ROOT/scripts/awake.py" set-mode idle
 ```
 
-The mode is stored in `~/Library/Application Support/CodexKeepAwake/config.json`. Replace `0.7.0` in the command with the installed version if you update the plugin later. The default remains `idle` when no mode has been selected.
+The selected mode is stored in `~/Library/Application Support/CodexKeepAwake/config.json`. Replace `0.7.0` with the installed version if you update the plugin later. The default remains `idle` when no mode has been selected.
 
 ## Install in Codex
 
@@ -41,7 +43,13 @@ Review and trust the plugin hooks in Codex before they run. Start a new Codex se
 
 ## Local state
 
-The plugin stores the selected mode and active lease IDs, session IDs, expiry times, and the managed `caffeinate` process identity in:
+The plugin stores the selected mode in:
+
+```text
+~/Library/Application Support/CodexKeepAwake/config.json
+```
+
+It stores lease IDs, session IDs, expiry times, and the managed `caffeinate` process identity and active mode in:
 
 ```text
 ~/Library/Application Support/CodexKeepAwake/state.sqlite3
@@ -50,7 +58,9 @@ The plugin stores the selected mode and active lease IDs, session IDs, expiry ti
 To print the current mode, active leases, their Codex conversation titles when available, and the managed process ID:
 
 ```sh
-python3 "$HOME/.codex/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.7.0/scripts/awake.py" status
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+PLUGIN_ROOT="$CODEX_HOME/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.7.0"
+python3 "$PLUGIN_ROOT/scripts/awake.py" status
 ```
 
-The database contains only the current mode, active leases, and process identity. It does not read prompts or transcripts, access repository files, or send network requests.
+The status command also reads `~/.codex/session_index.jsonl` to resolve conversation titles when available. The plugin does not read prompts or transcripts, inspect repository files, or send network requests.
