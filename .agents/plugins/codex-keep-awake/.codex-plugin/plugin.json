@@ -1,5 +1,6 @@
 {
   "name": "codex-keep-awake",
-  "version": "0.6.0",
-  "description": "Keep macOS awake while local Codex turns are active, then restore normal sleep behavior."
+  "version": "0.7.0",
+  "description": "Keep macOS awake while local Codex turns are active, then restore normal sleep behavior.",
+  "skills": "./skills/"
 }

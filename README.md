@@ -19,14 +19,14 @@ The default `idle` mode runs `caffeinate -i`: it prevents idle system sleep whil
 
 Choose `system` mode to add `caffeinate -s`. macOS supports this stronger system-sleep assertion only while connected to AC power. The display can still sleep. macOS can still enter clamshell sleep when a MacBook lid closes; this mode does not override that behavior. Apple documents closed-lid use with an external display, power, and external input devices.
 
-Set the mode with the installed helper:
+Use the bundled `$keep-awake` skill in Codex to check the current status or choose a mode. You can also set it with the installed helper:
 
 ```sh
-python3 "$HOME/.codex/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.6.0/scripts/awake.py" set-mode system
-python3 "$HOME/.codex/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.6.0/scripts/awake.py" set-mode idle
+python3 "$HOME/.codex/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.7.0/scripts/awake.py" set-mode system
+python3 "$HOME/.codex/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.7.0/scripts/awake.py" set-mode idle
 ```
 
-The mode is stored in `~/Library/Application Support/CodexKeepAwake/config.json`. Replace `0.6.0` in the command with the installed version if you update the plugin later. The default remains `idle` when no mode has been selected.
+The mode is stored in `~/Library/Application Support/CodexKeepAwake/config.json`. Replace `0.7.0` in the command with the installed version if you update the plugin later. The default remains `idle` when no mode has been selected.
 
 ## Install in Codex
 
@@ -50,7 +50,7 @@ The plugin stores the selected mode and active lease IDs, session IDs, expiry ti
 To print the current mode, active leases, their Codex conversation titles when available, and the managed process ID:
 
 ```sh
-python3 "$HOME/.codex/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.6.0/scripts/awake.py" status
+python3 "$HOME/.codex/plugins/cache/syntropicsignal-ai-tools/codex-keep-awake/0.7.0/scripts/awake.py" status
 ```
 
 The database contains only the current mode, active leases, and process identity. It does not read prompts or transcripts, access repository files, or send network requests.
